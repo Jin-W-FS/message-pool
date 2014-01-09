@@ -5,18 +5,10 @@
 #include <errno.h>
 #include <pthread.h>
 
+#include "pdebug.h"
 #include "mempool.h"
 
-#ifdef DEBUG
-#define PDEBUG(fmt, ...)	fprintf(stderr, fmt, ## __VA_ARGS__)
-#define PDEBUG_ERRNO(cond)	do {			\
-		if (cond) PDEBUG("\n");			\
-		else PDEBUG(": %s\n", strerror(errno));	\
-	} while (0)
-#else
-#define PDEBUG(fmt, ...)	(void)0
-#define PDEBUG_ERRNO(cond)	(void)0
-#endif
+#define PDEBUG_POOL_ST(pool) if (pool) PDEBUG("[total %d, alloced %d]", pool->nr_total, pool->nr_curr)
 
 #define MEMORY_ALIGN(len) (((len) + sizeof (size_t) - 1)	\
 			   & (size_t) ~(sizeof (size_t) - 1))
@@ -71,13 +63,16 @@ memory_pool_t* memory_pool_new(size_t objsize, int page_n_obj, int uselock)
 	/* 	pool = NULL; */
 	/* } */
 	PDEBUG(" = %p", pool);
+	if (pool) PDEBUG(" [datasize = %ld, pagesize = %ld]", pool->datasize, pool->pagesize);
 	PDEBUG_ERRNO(pool != NULL);
 	return pool;
 }
 
 void memory_pool_del(memory_pool_t* pool)
 {
-	PDEBUG("%s(pool = %p)\n", __FUNCTION__, pool);
+	PDEBUG("%s(pool = %p) ", __FUNCTION__, pool);
+	PDEBUG_POOL_ST(pool);
+	if (!pool) return;
 	memory_pool_data_t* p = pool->page;
 	while (p) {
 		memory_pool_data_t* cur = p;
@@ -85,6 +80,7 @@ void memory_pool_del(memory_pool_t* pool)
 		free(cur);
 	}
 	free(pool);
+	PDEBUG("\n");
 }
 
 static void* memory_pool_alloc_on_free_list(memory_pool_t* pool)
@@ -101,7 +97,7 @@ static void* memory_pool_alloc_on_cur_page(memory_pool_t* pool)
 	void *p = pool->cur;
 	void *end = p + pool->datasize;
 	void *pageend = (void*)pool->page + pool->pagesize;
-	if (end > pageend) return NULL;
+	if (p == NULL || end > pageend) return NULL;
 	pool->cur = end;
 	pool->nr_total++;
 	pool->nr_curr++;
@@ -111,6 +107,7 @@ static void* memory_pool_alloc_on_cur_page(memory_pool_t* pool)
 void* memory_pool_alloc(memory_pool_t* pool)
 {
 	PDEBUG("%s(pool = %p)", __FUNCTION__, pool);
+	/* PDEBUG_POOL_ST(pool); */
 	void* p = NULL;
 	memory_pool_lock(pool);
 	if ((p = memory_pool_alloc_on_free_list(pool)) != 0) {
@@ -128,6 +125,7 @@ void* memory_pool_alloc(memory_pool_t* pool)
 end:
 	memory_pool_unlock(pool);
 	PDEBUG(" = %p", p);
+	/* PDEBUG_POOL_ST(pool); */
 	PDEBUG_ERRNO(p != NULL);
 	return p;
 }
@@ -135,7 +133,8 @@ end:
 /* return memory to pool: assume obj is allocated by memory_pool_alloc() */
 void memory_pool_free(memory_pool_t* pool, void* obj)
 {
-	PDEBUG("%s(pool = %p, obj = %p)\n", __FUNCTION__, pool, obj);
+	PDEBUG("%s(pool = %p, obj = %p)", __FUNCTION__, pool, obj);
+	/* PDEBUG_POOL_ST(pool); */
 	if (obj == NULL) return;
 	memory_pool_data_t* p;
 	memory_pool_lock(pool);
@@ -144,5 +143,7 @@ void memory_pool_free(memory_pool_t* pool, void* obj)
 	pool->free = p;
 	pool->nr_curr--;
 	memory_pool_unlock(pool);
+	/* PDEBUG_POOL_ST(pool); */
+	PDEBUG("\n");
 }
 

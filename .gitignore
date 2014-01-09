@@ -16,4 +16,10 @@
 *.exe
 *.out
 *.app
-test
+*-test
+
+# Dependences
+*.d
+
+# Editor temp file
+*~
