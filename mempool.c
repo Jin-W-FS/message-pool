@@ -65,11 +65,11 @@ memory_pool_t* memory_pool_new(size_t objsize, int page_n_obj, int uselock)
 	pool->page = pool->cur = pool->free = NULL;
 	/* if (pool->uselock) pthread_mutex_init(lock, NULL); */
 	pool->nr_total = pool->nr_curr = 0;
-	/*  */
-	if (memory_pool_alloc_one_page(pool) < 0) {
-		free(pool);
-		pool = NULL;
-	}
+	/* do NOT pre-allocating pages */
+	/* if (memory_pool_alloc_one_page(pool) < 0) { */
+	/* 	free(pool); */
+	/* 	pool = NULL; */
+	/* } */
 	PDEBUG(" = %p", pool);
 	PDEBUG_ERRNO(pool != NULL);
 	return pool;
