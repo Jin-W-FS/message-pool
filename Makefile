@@ -4,17 +4,16 @@ ifdef WITH_DEBUG
 DEBUG=-DDEBUG
 endif
 CFLAGS=$(DEBUG) -g
-LDFLAGS=-pthread
+LDFLAGS=-pthread -lrt
 
-ALLSRC=mempool.c mempool_vary.c mempool-test.c mempool_vary-test.c 
+ALLSRC=mempool.c mempool_vary.c event_queue.c event_queue-test.c
 ALLOBJ=$(ALLSRC:.c=.o)
-TARGET=mempool-test mempool_vary-test
+TARGET=event_queue-test
 
 all:$(TARGET)
 
-mempool-test:mempool-test.o mempool.o
-
-mempool_vary-test:mempool_vary-test.o mempool_vary.o mempool.o
+event_queue-test:event_queue-test.o event_queue.o mempool.o
+	$(CC) $^ $(LDFLAGS) -o $@
 
 include $(ALLSRC:.c=.d)
 %.d: %.c
