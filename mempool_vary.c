@@ -53,9 +53,9 @@ static memory_pool_t* alloc_new_memory_pool(int idx)
 	return memory_pool_new(objsize, page_n_obj, 1); /* always lock */
 }
 
-vari_mempool_t* vari_mempool_new(size_t max_objsize_alloc)
+vari_mempool_t* vari_mempool_new(struct vari_mempool_cfg* cfg)
 {
-	int nr_pools = pool_index(max_objsize_alloc) + 1;
+	int nr_pools = pool_index(cfg->max_objsize_alloc) + 1;
 	vari_mempool_t* pool = malloc(sizeof(vari_mempool_t) + nr_pools * sizeof(memory_pool_t*));
 	if (!pool) goto end;
 	pool->max_objsize = OBJSIZE_OF_POOL_N(nr_pools - 1);

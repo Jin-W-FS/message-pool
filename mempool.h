@@ -26,7 +26,7 @@ typedef struct memory_pool {
 	pthread_mutex_t lock;	/* if locked alloc */
 	/* statistics */
 	int nr_total;		/* total allocated */
-	int nr_curr;		/* current allocated */
+	int nr_freed;		/* currently freed */
 } memory_pool_t;
 
 /* new pool:  */

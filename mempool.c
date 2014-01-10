@@ -8,7 +8,9 @@
 #include "pdebug.h"
 #include "mempool.h"
 
-#define PDEBUG_POOL_ST(pool) if (pool) PDEBUG("[total %d, alloced %d]", pool->nr_total, pool->nr_curr)
+#define FMT_POOL_ST		"[total %d, freed %d]"
+#define STR_POOL_ST(pool)	pool->nr_total, pool->nr_freed
+#define PDEBUG_POOL_ST(pool)	if (pool) PDEBUG(FMT_POOL_ST, STR_POOL_ST(pool))
 
 #define MEMORY_ALIGN(len) (((len) + sizeof (size_t) - 1)	\
 			   & (size_t) ~(sizeof (size_t) - 1))
@@ -56,7 +58,7 @@ memory_pool_t* memory_pool_new(size_t objsize, int page_n_obj, int uselock)
 	pool->uselock = (uselock ? 1 : 0);
 	pool->page = pool->cur = pool->free = NULL;
 	/* if (pool->uselock) pthread_mutex_init(lock, NULL); */
-	pool->nr_total = pool->nr_curr = 0;
+	pool->nr_total = pool->nr_freed = 0;
 	/* do NOT pre-allocating pages */
 	/* if (memory_pool_alloc_one_page(pool) < 0) { */
 	/* 	free(pool); */
@@ -72,7 +74,9 @@ void memory_pool_del(memory_pool_t* pool)
 {
 	PDEBUG("%s(pool = %p) ", __FUNCTION__, pool);
 	PDEBUG_POOL_ST(pool);
-	if (!pool) return;
+	/* somehow check mem leak */
+	if (pool) printf("%p: " FMT_POOL_ST "\n", pool, STR_POOL_ST(pool));
+ 	if (!pool) return;
 	memory_pool_data_t* p = pool->page;
 	while (p) {
 		memory_pool_data_t* cur = p;
@@ -88,7 +92,7 @@ static void* memory_pool_alloc_on_free_list(memory_pool_t* pool)
 	if (!pool->free) return NULL;
 	void* p = pool->free;
 	pool->free = pool->free->next;
-	pool->nr_curr++;
+	pool->nr_freed--;
 	return p;
 }
 
@@ -100,7 +104,6 @@ static void* memory_pool_alloc_on_cur_page(memory_pool_t* pool)
 	if (p == NULL || end > pageend) return NULL;
 	pool->cur = end;
 	pool->nr_total++;
-	pool->nr_curr++;
 	return p;
 }
 
@@ -141,7 +144,7 @@ void memory_pool_free(memory_pool_t* pool, void* obj)
 	p = obj;
 	p->next = pool->free;
 	pool->free = p;
-	pool->nr_curr--;
+	pool->nr_freed++;
 	memory_pool_unlock(pool);
 	/* PDEBUG_POOL_ST(pool); */
 	PDEBUG("\n");
