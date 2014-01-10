@@ -6,14 +6,14 @@ endif
 CFLAGS=$(DEBUG) -g
 LDFLAGS=-pthread -lrt
 
-ALLSRC=mempool.c mempool_vary.c event_queue.c event_queue-test.c
+ALLSRC=mempool.c mempool_vary.c event_queue.c
 ALLOBJ=$(ALLSRC:.c=.o)
-TARGET=event_queue-test
+TARGET=
 
 all:$(TARGET)
 
-event_queue-test:event_queue-test.o event_queue.o mempool.o
-	$(CC) $^ $(LDFLAGS) -o $@
+# event_queue-test:event_queue-test.o event_queue.o mempool.o
+# 	$(CC) $^ $(LDFLAGS) -o $@
 
 include $(ALLSRC:.c=.d)
 %.d: %.c
