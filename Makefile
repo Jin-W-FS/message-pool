@@ -6,7 +6,7 @@ endif
 CFLAGS=$(DEBUG) -g
 LDFLAGS=-pthread -lrt
 
-ALLSRC=mempool.c mempool_vary.c event_queue.c message_pool.c message_pool-test.c
+ALLSRC=mempool.c mempool_vary.c event_queue.c event_queue_watcher.c message_pool.c message_pool-test.c
 ALLOBJ=$(ALLSRC:.c=.o)
 TARGET=message_pool-test
 

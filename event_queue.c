@@ -79,6 +79,10 @@ static int event_queue_pop_unsafe(struct event_queue* eq, void** pevent)
 	return 0;
 }
 
+static inline void event_queue_call_watcher_unsafe(struct event_queue* eq, int dir) {
+	if (eq->watcher_callback) eq->watcher_callback(eq->watcher_data, eq->nr_events, dir);
+}
+
 int event_queue_init(struct event_queue* eq)
 {
 	if (eqent_allocator_init() < 0) {
@@ -88,6 +92,7 @@ int event_queue_init(struct event_queue* eq)
 	pthread_cond_init(&eq->cond, NULL);
 	pthread_mutex_init(&eq->lock, NULL);
 	eq->nr_events = 0;
+	eq->watcher_data = eq->watcher_callback = NULL;
 	return 0;
 }
 
@@ -124,6 +129,7 @@ int event_queue_post(struct event_queue* eq, void* event)
 	pthread_mutex_lock(&eq->lock);
 	if ((ret = event_queue_push_unsafe(eq, event)) == 0) {
 		pthread_cond_signal(&eq->cond);
+		event_queue_call_watcher_unsafe(eq, +1);
 	}
 	pthread_mutex_unlock(&eq->lock);
 	return ret;
@@ -136,10 +142,11 @@ int event_queue_timedwait(struct event_queue* eq, void** pevent, const struct ti
 	while ((ret = event_queue_pop_unsafe(eq, pevent)) < 0 && pth_error != ETIMEDOUT) {
 		pth_error = pthread_cond_timedwait(&eq->cond, &eq->lock, abstime);
 	}
-	pthread_mutex_unlock(&eq->lock);
 	/* when while loop breaks, we have:
 	 * 1) !(ret < 0) OR
 	 * 2) pth_error == ETIMEDOUT */
+	if (!(ret < 0)) event_queue_call_watcher_unsafe(eq, -1);
+	pthread_mutex_unlock(&eq->lock);
 	if (ret < 0) errno = pth_error;
 	return ret;
 }
@@ -150,6 +157,7 @@ int event_queue_wait(struct event_queue* eq, void** pevent)
 	while (event_queue_pop_unsafe(eq, pevent) < 0) {
 		pthread_cond_wait(&eq->cond, &eq->lock);
 	}
+	event_queue_call_watcher_unsafe(eq, -1);
 	pthread_mutex_unlock(&eq->lock);
 	return 0;
 }
@@ -160,6 +168,16 @@ int event_queue_trywait(struct event_queue* eq, void** pevent)
 	int ret;
 	pthread_mutex_lock(&eq->lock);
 	ret = event_queue_pop_unsafe(eq, pevent);
+	if (!(ret < 0)) event_queue_call_watcher_unsafe(eq, -1);
 	pthread_mutex_unlock(&eq->lock);
 	return ret;
+}
+
+void event_queue_register_watcher(struct event_queue* eq, void* data, void (*callback)(void*, int, int))
+{
+	pthread_mutex_lock(&eq->lock);
+	eq->watcher_data = data;
+	eq->watcher_callback = callback;
+	event_queue_call_watcher_unsafe(eq, 0);
+	pthread_mutex_unlock(&eq->lock);
 }

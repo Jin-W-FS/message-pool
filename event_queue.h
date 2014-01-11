@@ -14,8 +14,13 @@ struct event_queue {
 	/* no need a sem, as data in the list is a best sem */
 	pthread_cond_t cond;
 	pthread_mutex_t lock;
-	/* statistics */
+	/* watcher_callback shall be called with watcher_data, nr_events,
+	 * and change(+1/0/-1) each time after an action causing nr_events
+	 * changed or a new watcher settled; calling is inside the queue
+	 * lock so don't be time-consuming */
 	int nr_events;
+	void (*watcher_callback)(void* data, int nr_events, int change);
+	void* watcher_data;
 };
 
 struct event_queue* event_queue_new();
@@ -31,5 +36,8 @@ int event_queue_timedwait(struct event_queue* eq, void** pevent, const struct ti
 
 /* post event (void*) */
 int event_queue_post(struct event_queue* eq, void* event);
+
+/* register a watcher */
+void event_queue_register_watcher(struct event_queue* eq, void* data, void (*callback)(void*, int, int));
 
 #endif
