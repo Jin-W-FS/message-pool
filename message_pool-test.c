@@ -68,6 +68,7 @@ void free_msg(msg_pool_t* mp, msg_t* msg)
 #define MSG_FMT	"%p/%d: %s"
 #define MSG_STR(msg)	msg, msg->datalen, msg->data
 
+typedef int (*poll_msg_handler)(msg_pool_t*);
 static int deal_stdin_msg(msg_pool_t* mp);
 static int deal_downstream_msg(msg_pool_t* mp);
 static int deal_upstream_msg(msg_pool_t* mp);
@@ -77,24 +78,41 @@ static msg_pool_t* message_pool;
 
 void* io_thread(void* args)
 {
-	struct pollfd fdset[2] = {
+	struct pollfd fdset[4] = {
 		{ .fd = 0, .events = POLLIN }, /* stdin */
-		{ .fd = -1, .events = POLLIN },  /* eventfd */
+		{ .fd = msg_pool_get_event_fd(message_pool, MSG_CHANNEL_DOWNSTREAM), .events = POLLIN },  /* eventfd down */
+		{ .fd = msg_pool_get_event_fd(message_pool, MSG_CHANNEL_UPSTREAM), .events = POLLIN },  /* eventfd up */
 	};
-	if ((fdset[1].fd = msg_pool_get_event_fd(message_pool, MSG_CHANNEL_DOWNSTREAM)) < 0) {
-		fprintf(stderr, "[io] not eventfd to wait on\n");
-		return NULL;
+	poll_msg_handler msg_handle_fn[] = {
+		deal_stdin_msg,
+		deal_downstream_msg,
+		deal_upstream_msg
+	};
+	int i;
+	for (i = 0; i < 3; i++) {
+		if (fdset[i].fd < 0) {
+			fdset[i].events = fdset[i].revents = 0;
+		} else {
+			printf("[io] watch on fd [%d]\n", fdset[i].fd);
+		}
 	}
 	while (1) {
-		if (poll(fdset, 2, -1) <= 0) {
+		if (poll(fdset, 3, -1) <= 0) {
 			perror("poll");
 			continue;
 		}
-		if (fdset[0].revents & POLLIN) {
-			deal_stdin_msg(message_pool);
-		}
-		if (fdset[1].revents & POLLIN) {
-			deal_downstream_msg(message_pool);
+		for (i = 0; i < 3; i++) {
+			if (fdset[i].revents & POLLIN) {
+				msg_handle_fn[i](message_pool);
+			}
+			if (fdset[i].revents & (POLLERR | POLLHUP | POLLNVAL)) { /* err:0x8, hup:0x10, nval:0x20 */
+				/* usually have POLLNVAL closed stdin elsewhere;
+				 * hup if stdin is a pipe and the other peer closed */
+				printf("[io] fd %d recv event %x, close\n", fdset[i].fd, fdset[i].revents);
+				close(fdset[i].fd);
+				fdset[i].fd = -1;
+				fdset[i].events = fdset[i].revents = 0;
+			}
 		}
 	}
 }
@@ -146,6 +164,9 @@ int multi_thread_test(int nr_workers)
 
 	printf("[main]: started. waiting SIGINT to exit\n");
 	sigwaitinfo(&set, NULL);
+	printf("[main]: recv SIGINT, close all input\n");
+	close(0);
+	sigwaitinfo(&set, NULL);
 	printf("[main]: recv SIGINT, cancel and join threads\n");
 	
 	/* for (--i; i >= 0; --i) { */
@@ -173,26 +194,7 @@ int single_thread_test()
 		return 1;
 	}
 
-	struct pollfd fdset[4] = {
-		{ .fd = 0, .events = POLLIN }, /* stdin */
-		{ .fd = msg_pool_get_event_fd(message_pool, MSG_CHANNEL_DOWNSTREAM), .events = POLLIN },  /* eventfd down */
-		{ .fd = msg_pool_get_event_fd(message_pool, MSG_CHANNEL_UPSTREAM), .events = POLLIN },  /* eventfd up */
-	};
-	while (1) {
-		if (poll(fdset, 3, -1) <= 0) {
-			perror("poll");
-			continue;
-		}
-		if (fdset[0].revents & POLLIN) {
-			deal_stdin_msg(message_pool);
-		}
-		if (fdset[1].revents & POLLIN) {
-			deal_downstream_msg(message_pool);
-		}
-		if (fdset[2].revents & POLLIN) {
-			deal_upstream_msg(message_pool);
-		}
-	}
+	io_thread(NULL);
 	
 	msg_pool_del(message_pool);
 }
@@ -230,6 +232,7 @@ static int deal_stdin_msg(msg_pool_t* mp)
 	}
 	if (eof) {
 		fprintf(stderr, "[io] read(stdin) EOF\n");
+		/* close(0); /\* we can still read stdin after recv EOF *\/ */
 	} else if (errno != EAGAIN) {
 		perror("[io] read(stdin) ERR");
 	}

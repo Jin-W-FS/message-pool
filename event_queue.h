@@ -14,8 +14,8 @@ struct event_queue {
 	/* no need a sem, as data in the list is a best sem */
 	pthread_cond_t cond;
 	pthread_mutex_t lock;
-	/* maybe an additional timer? but that can
-	 * be solved by posting a timeout msg */
+	/* statistics */
+	int nr_events;
 };
 
 struct event_queue* event_queue_new();

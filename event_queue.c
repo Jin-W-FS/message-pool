@@ -9,6 +9,7 @@
 #include <pthread.h>
 
 #include "event_queue.h"
+#include "pdebug.h"
 
 #define EVENT_QUEUE_USE_GLOBAL_MEMPOOL
 
@@ -55,6 +56,7 @@ static int event_queue_push_unsafe(struct event_queue* eq, void* event)
 		assert(eq->head != NULL);
 		eq->tail = eq->tail->next = e;
 	}
+	eq->nr_events++;
 	return 0;
 }
 
@@ -73,6 +75,7 @@ static int event_queue_pop_unsafe(struct event_queue* eq, void** pevent)
 	}
 	if (pevent) *pevent = e->event;
 	eqent_free(e);
+	eq->nr_events--;
 	return 0;
 }
 
@@ -84,6 +87,7 @@ int event_queue_init(struct event_queue* eq)
 	eq->head = eq->tail = NULL;
 	pthread_cond_init(&eq->cond, NULL);
 	pthread_mutex_init(&eq->lock, NULL);
+	eq->nr_events = 0;
 	return 0;
 }
 
