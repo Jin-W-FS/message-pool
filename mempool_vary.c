@@ -76,6 +76,7 @@ void vari_mempool_del(vari_mempool_t* pool)
 	PDEBUG("%s(%p)\n", __FUNCTION__, pool);
 	int i;
 	for (i = 0; i < pool->nr_pools; i++) {
+		printf("vari_mempool[%d]: ", i);
 		memory_pool_del(pool->pools[i]);
 	}
 	free(pool);

@@ -15,6 +15,12 @@ struct equeue_signal_watcher {
 	int dylimit;
 };
 
+#define EQUEUE_FULL_WATCHER(sig, ulimit, inc, max)			\
+	{ .signo = sig,	.limit = { -1, ulimit }, .dylimit_inc = inc, .dylimit_max = max, }
+
+#define EQUEUE_EMPTY_WATCHER(sig)					\
+	{ .signo = sig,	.limit = { 0, -1 }, .dylimit_inc = 0, .dylimit_max = -1, }
+	
 void equeue_signal_watcher_cb(void* data, int nr_events, int change);
 
 #endif

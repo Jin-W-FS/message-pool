@@ -24,6 +24,13 @@ static int mempool_eqent_init() {
 	}
 	return mempool_eqent ? 0 : -1;
 }
+static void mempool_eqent_destory() {
+	if (mempool_eqent) {
+		printf("event_queue_entry allocator: ");
+		memory_pool_del(mempool_eqent);
+		mempool_eqent = NULL;
+	}
+}
 static struct event_queue_entry* mempool_eqent_alloc() {
 	return memory_pool_alloc(mempool_eqent);
 }
@@ -31,12 +38,14 @@ static void mempool_eqent_free(struct event_queue_entry* e) {
 	memory_pool_free(mempool_eqent, e);
 }
 #define eqent_allocator_init()	mempool_eqent_init()
+#define eqent_allocator_destory()	mempool_eqent_destory()
 #define eqent_alloc()	mempool_eqent_alloc()
 #define eqent_free(e)	mempool_eqent_free(e)
 
 #else
 
 #define eqent_allocator_init()	(0)
+#define eqent_allocator_destory()	(void)(0)
 #define eqent_alloc()	malloc(sizeof(struct event_queue_entry))
 #define eqent_free(e)	free(e)
 
@@ -102,8 +111,10 @@ void event_queue_destory(struct event_queue* eq)
 	pthread_cond_destroy(&eq->cond);
 	void* event;
 	while (event_queue_pop_unsafe(eq, &event) == 0) {
+		printf("event_queue lost: %p\n", event);
 		/* memory in event is lost forever */
 	}
+	eqent_allocator_destory();
 }
 
 struct event_queue* event_queue_new()

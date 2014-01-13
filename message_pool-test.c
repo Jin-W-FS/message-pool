@@ -15,6 +15,7 @@
 
 #include "message_pool.h"
 #include "event_queue_watcher.h"
+#include "thread_pool.h"
 
 /* config */
 #define MAX_MSG_SIZE	4
@@ -120,7 +121,12 @@ void* io_thread(void* args)
 
 void* timer_thread(void* args);
 
-void cleanup(void *arg) {
+void* worker_thread_arg(int id)
+{
+	return (void*)(long)id;
+}
+
+static void cleanup(void *arg) {
 	pthread_mutex_t* lock = arg;
 	pthread_mutex_unlock(lock);
 }
@@ -131,13 +137,14 @@ void* worker_thread(void* args)
 	pthread_cleanup_push(cleanup, &message_pool->equeue[MSG_CHANNEL_UPSTREAM].lock);
 	msg_t* msg;
 	while (1) {
- 		if (msg_pool_wait(message_pool, MSG_CHANNEL_UPSTREAM, &msg) < 0) {
+		if (msg_pool_wait(message_pool, MSG_CHANNEL_UPSTREAM, &msg) < 0) {
 			perror("[worker] msg_pool_wait(UP)");
 			continue;
 		}
 		on_recv_upstream_msg(message_pool, msg, id, serv_time_max_us);
 	}
 	pthread_cleanup_pop(1);
+	return NULL;
 }
 
 int multi_thread_test(int nr_workers)
@@ -151,62 +158,80 @@ int multi_thread_test(int nr_workers)
 		return 1;
 	}
 
-	struct equeue_signal_watcher watcher = {
-		.signo = SIGRTMAX-1,
-		.limit = { 0, 10 },
-		.dylimit_inc = 3,
-		.dylimit_max = -1,
+	const int watcher_signo = SIGRTMAX-1;
+	/* upstream full watcher */
+	struct equeue_signal_watcher full_watcher = EQUEUE_FULL_WATCHER(watcher_signo, 5, 3, -1);
+	/* downstream empth watcher while exit */
+	struct equeue_signal_watcher empty_watcher = EQUEUE_EMPTY_WATCHER(watcher_signo);
+	
+	struct thread_pool thread_pool = {
+		.thread_fn = worker_thread,
+		.gain_thread_arg = worker_thread_arg,
+		.deal_thread_ret = NULL,
+		.min_nr_threads = nr_workers,
+		.max_nr_threads = 10,
 	};
-
+	
+	int i;
 	sigset_t set;
 	sigemptyset(&set);
 	sigaddset(&set, SIGINT);
-	sigaddset(&set, watcher.signo);
-	sigprocmask(SIG_SETMASK, &set, NULL);
+	sigaddset(&set, watcher_signo);
+	pthread_sigmask(SIG_SETMASK, &set, NULL);
 
-	event_queue_register_watcher(&message_pool->equeue[MSG_CHANNEL_UPSTREAM],
-				     &watcher, equeue_signal_watcher_cb);
-	
-	pthread_t ioth, workerth[MAX_N_WORKERS];
+	msg_pool_register_watcher(message_pool, MSG_CHANNEL_UPSTREAM, &full_watcher, equeue_signal_watcher_cb);
+	msg_pool_register_watcher(message_pool, MSG_CHANNEL_DOWNSTREAM, NULL, NULL);
+
+	printf("[main] starting threads\n");
+	pthread_t poolth, ioth;
+	pthread_create(&poolth, NULL, thread_pool_start, &thread_pool);
 	pthread_create(&ioth, NULL, io_thread, NULL);
-	int i;
-	for (i = 0; i < nr_workers; i++) {
-		pthread_create(&workerth[i], NULL, worker_thread, (void*)(long)i);
+
+	printf("[main] started. waiting SIGINT to exit\n");
+	while (1) {
+		siginfo_t info;
+		int signo = sigwaitinfo(&set, &info);
+		if (signo == watcher_signo) {
+			printf("[main] equeue[UP] exceed %d\n", info.si_int);
+			thread_pool_command(&thread_pool, THPOOL_INC, 1);
+		} else {
+			fprintf(stderr, "[main] recv SIG %d: begin quit\n", signo);
+			break;
+		}
 	}
 
-	printf("[main]: started. waiting SIGINT to exit\n");
-	siginfo_t info;
-	int st;
-	while (!(sigwaitinfo(&set, &info) < 0)) {
-		if (info.si_signo == watcher.signo) {
-			if (info.si_int < 0) {
-				printf("[main]: equeue[UP] empty\n");
-			} else {
-				printf("[main]: equeue[UP] exceed %d\n", info.si_int);
-				if (nr_workers < MAX_N_WORKERS) {
-					pthread_create(&workerth[nr_workers], NULL, worker_thread, (void*)(long)nr_workers);
-					printf("[main]: start up new worker thread %d\n", nr_workers);	
-					nr_workers++;
-				}
+	printf("[main] close all inputs\n");
+	close(0);
+
+	msg_pool_register_watcher(message_pool, MSG_CHANNEL_UPSTREAM, NULL, NULL);
+	msg_pool_register_watcher(message_pool, MSG_CHANNEL_DOWNSTREAM, &empty_watcher, equeue_signal_watcher_cb);
+	printf("[main] waiting for all event queue clean\n");
+
+	int flag = 0;
+	while (1) {
+		int signo = sigwaitinfo(&set, NULL);
+		if (signo == watcher_signo) {
+			if (message_pool->equeue[0].nr_events == 0 &&
+			    message_pool->equeue[1].nr_events == 0) {
+				printf("[main] all equeue empty: %d %d\n",
+				       message_pool->equeue[0].nr_events,
+				       message_pool->equeue[1].nr_events);
+				break;
 			}
-		} else if (info.si_signo == SIGINT) {
-			printf("[main]: recv SIGINT, close all input and exit\n");
-			break;	/* exit  */
 		} else {
-			printf("[main]: ERROR recv none-waited signal %d, errno %d\n", info.si_signo, info.si_errno);
+			fprintf(stderr, "[main] recv SIG %d, forth exit\n", signo);
+			break;
 		}
 	}
 	
-	close(0);
-	sleep(2);
-	printf("[main]: cancel and join threads\n");
-	for (i = 0; i < nr_workers; i++) {
-		pthread_cancel(workerth[i]);
-		pthread_join(workerth[i], NULL);
-		printf("[main] joined [%d]\n", i);
-	}
+	printf("[main]: cancel and join io threads\n");
+	
 	pthread_cancel(ioth);
 	pthread_join(ioth, NULL);
+	printf("[main]: io thread joined\n");
+
+	thread_pool_command(&thread_pool, THPOOL_EXIT, 0);
+	pthread_join(poolth, NULL);
 	printf("[main]: all threads joined\n");
 
 	msg_pool_del(message_pool);
