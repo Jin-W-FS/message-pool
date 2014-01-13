@@ -46,6 +46,10 @@ int msg_pool_post(msg_pool_t* mp, int ch, void* msg);
 int msg_pool_efd_trypost(int fd);
 int msg_pool_efd_trywait(int fd);
 
-#define msg_pool_register_watcher(mp, ch, data, fn)	event_queue_register_watcher(&mp->equeue[ch], data, fn)
+#define msg_pool_register_event_watcher(mp, ch, data, fn)	event_queue_register_event_watcher(&mp->equeue[ch], data, fn)
+#define msg_pool_unregister_event_watcher(mp, ch)	event_queue_register_event_watcher(&mp->equeue[ch], NULL, NULL)
+
+#define msg_pool_register_thread_watcher(mp, ch, data, fn)	event_queue_register_thread_watcher(&mp->equeue[ch], data, fn)
+#define msg_pool_unregister_thread_watcher(mp, ch)	event_queue_register_thread_watcher(&mp->equeue[ch], NULL, NULL)
 
 #endif

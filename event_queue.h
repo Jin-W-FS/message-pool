@@ -19,8 +19,12 @@ struct event_queue {
 	 * changed or a new watcher settled; calling is inside the queue
 	 * lock so don't be time-consuming */
 	int nr_events;
-	void (*watcher_callback)(void* data, int nr_events, int change);
-	void* watcher_data;
+	void* ne_watcher_data;
+	void (*ne_watcher_cb)(void* data, int nr_events, int change);
+	/* another watcher, watch on how many threads are waiting the condition */
+	int nr_await;
+	void* nt_watcher_data;	/* thread watcher */
+	void (*nt_watcher_cb)(void* data, int nr_await, int change);
 };
 
 struct event_queue* event_queue_new();
@@ -38,6 +42,7 @@ int event_queue_timedwait(struct event_queue* eq, void** pevent, const struct ti
 int event_queue_post(struct event_queue* eq, void* event);
 
 /* register a watcher */
-void event_queue_register_watcher(struct event_queue* eq, void* data, void (*callback)(void*, int, int));
+void event_queue_register_event_watcher(struct event_queue* eq, void* data, void (*callback)(void*, int, int));
+void event_queue_register_thread_watcher(struct event_queue* eq, void* data, void (*callback)(void*, int, int));
 
 #endif
